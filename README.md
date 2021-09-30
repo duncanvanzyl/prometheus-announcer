@@ -3,6 +3,7 @@
 A gprc server that allows applications to announce themselves to prometheus 
 using [prometheus http service discovery](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#http_sd_config).
 
+## Announce
 Connect using grpc and Announce the service to have it presented using the prometheus http service
 discovery. The app to be discovered is responsible for reannouncing itself before the announcement 
 lifetime has expired.
@@ -57,3 +58,7 @@ import (
 // Note: It is probably worth doing something with the returned error value...
 go pa.DialAndAnnounce(ctx, grpcServer, 1*time.Minute, announceHost, pb.RegisterRequest_APP)
 ```
+
+## Server
+There is a functional server in `cmd/server`. It is intended to be run in docker (or kubernetes). 
+Create the image with `make docker-build`.
