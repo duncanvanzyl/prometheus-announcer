@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option go_package = "github.com/duncanvanzyl/prometheus-announcer/pb";
+
+message RegisterRequest {
+  string Host = 1;
+  enum Type {
+      APP = 0;
+      DEVICE = 1;
+  }
+  Type ConfigType = 2;
+}
+
+message RegisterResponse {}
+
+service ServiceDiscovery {
+  // Announce that an app exists
+  rpc Announce (RegisterRequest) returns (RegisterResponse) {}
+}
