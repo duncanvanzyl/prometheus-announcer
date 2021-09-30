@@ -62,3 +62,12 @@ go pa.DialAndAnnounce(ctx, grpcServer, 1*time.Minute, announceHost, pb.RegisterR
 ## Server
 There is a functional server in `cmd/server`. It is intended to be run in docker (or kubernetes). 
 Create the image with `make docker-build`.
+
+### Environment Variable
+| Variable     | Function                                                                              | Default        |
+| ------------ | ------------------------------------------------------------------------------------- | -------------- |
+| HSD_GPRCHOST | Port to allow clients to connect to.                                                  | :50051         |
+| HSD_LOGLEVEL | Logging level.                                                                        | info           |
+| HSD_HTTPHOST | The host and port for prometheus to use for service discovery.                        | localhost:8080 |
+| HSD_LIFETIME | Announcement lifetimes. Announcement expires if not reannounced before this duration. | 2m             |
+| HSD_INTERVAL | The interval to check for expired announcements.                                      | 30s            |
