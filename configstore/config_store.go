@@ -3,110 +3,66 @@ package configstore
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
-	pa "github.com/duncanvanzyl/prometheus-announcer"
-
-	"github.com/hashicorp/go-hclog"
+	sd "github.com/duncanvanzyl/prometheus-announcer/servicediscovery"
 )
 
-var logger = hclog.Default()
-
-func SetLogger(l hclog.Logger) {
-	logger = l.Named("cs")
-}
-
-type target struct {
-	host string
-	ct   pa.ConfigType
-	t    time.Time
-}
-
-func (t target) String() string {
-	return fmt.Sprintf("Host: %q, Type: %v, Time: %s", t.host, t.ct, t.t.Format("15:04:05"))
-}
-
-type staticConfig struct {
-	Targets []string          `json:"targets"`
-	Labels  map[string]string `json:"labels,omitempty"`
-}
-
-type Config interface {
-	AddTarget(string, pa.ConfigType) error
-	RemoveTarget(string)
-	JSON() ([]byte, error)
-	Run(context.Context)
+type config struct {
+	targets []string
+	labels  map[string]string
+	t       time.Time
 }
 
 type ConfigStore struct {
-	mu       sync.RWMutex
-	configs  []target
 	lifetime time.Duration
 	interval time.Duration
+	mu       sync.RWMutex
+	configs  map[string]*config
 }
 
 func New(lifetime, interval time.Duration) *ConfigStore {
 	return &ConfigStore{
 		lifetime: lifetime,
 		interval: interval,
+		configs:  map[string]*config{},
 	}
 }
 
-func (cs *ConfigStore) hasTarget(host string, ct pa.ConfigType) *target {
-	for i := range cs.configs {
-		t := &cs.configs[i]
-		if t.ct == ct && t.host == host {
-			return t
-		}
-	}
-	return nil
-}
-
-func (cs *ConfigStore) AddTarget(host string, ct pa.ConfigType) error {
-	logger.Debug("request add target", "host", host, "type", ct)
+func (cs *ConfigStore) AddTarget(id string, host []string, ls map[string]string) error {
+	logger.Debug("request add target", "host", host, "labels", ls)
 
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	if ct >= 2 { // 2 is a magic number since there are 2 configuration types defined
-		return fmt.Errorf("invalid config type")
+	cs.configs[id] = &config{
+		targets: host,
+		labels:  ls,
+		t:       time.Now(),
 	}
 
-	if t := cs.hasTarget(host, ct); t != nil {
-		logger.Debug("target already exists", "host", host, "type", ct)
-		t.t = time.Now()
-		return nil
-	}
-
-	// TODO: check host format
-	logger.Info("adding target", "host", host, "type", ct)
-	cs.configs = append(cs.configs, target{host: host, ct: ct, t: time.Now()})
 	return nil
 }
 
-func (cs *ConfigStore) RemoveTarget(string) {
+func (cs *ConfigStore) RemoveTarget(id string) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+
+	delete(cs.configs, id)
 }
 
-// TODO: Rethink this
 func (cs *ConfigStore) JSON() ([]byte, error) {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 
-	m := make(map[pa.ConfigType][]target)
-	for _, v := range cs.configs {
-		m[v.ct] = append(m[v.ct], v)
-	}
-
-	j := []staticConfig{}
-	for i, v := range m {
-		j = append(j, staticConfig{})
-		for _, t := range v {
-			j[i].Targets = append(j[i].Targets, t.host)
+	j := []sd.Config{}
+	for _, conf := range cs.configs {
+		c := sd.Config{
+			Targets: conf.targets,
+			Labels:  conf.labels,
 		}
+		j = append(j, c)
 	}
 
 	return json.Marshal(j)
@@ -117,16 +73,10 @@ func (cs *ConfigStore) purge(t time.Time) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	for i, tar := range cs.configs {
-		if t.Sub(tar.t) > cs.lifetime {
-			logger.Info("purging target", "target", tar)
-			if len(cs.configs) == 1 {
-				cs.configs = []target{}
-				return
-			}
-
-			cs.configs[i] = cs.configs[len(cs.configs)-1]
-			cs.configs = cs.configs[:len(cs.configs)-1]
+	for id, conf := range cs.configs {
+		if t.Sub(conf.t) > cs.lifetime {
+			logger.Info("purging target", "id", id, "target", conf)
+			delete(cs.configs, id)
 		}
 	}
 }

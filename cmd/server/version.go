@@ -17,7 +17,7 @@ func buildInfo() string {
 }
 
 func handleVersion() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s", buildInfo())
+	return func(rw http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(rw, "%s", buildInfo())
 	}
 }

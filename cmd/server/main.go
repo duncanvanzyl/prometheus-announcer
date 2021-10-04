@@ -9,12 +9,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/hashicorp/go-hclog"
 	"github.com/kelseyhightower/envconfig"
 	"google.golang.org/grpc"
 
 	"github.com/duncanvanzyl/prometheus-announcer/configstore"
-	hsd "github.com/duncanvanzyl/prometheus-announcer/httpservicediscovery"
 	"github.com/duncanvanzyl/prometheus-announcer/pb"
 )
 
@@ -26,25 +26,23 @@ var logger = hclog.New(&hclog.LoggerOptions{
 
 type app struct {
 	pb.UnimplementedServiceDiscoveryServer
-	cs         configstore.Config
-	httpServer hsd.HTTPServiceDiscovery
+	cs configstore.ConfigurationStore
+	// httpServer hsd.HTTPServiceDiscovery
+	router *mux.Router
 }
 
 func run(s *Specification) error {
 	logger.SetLevel(hclog.LevelFromString(s.LogLevel))
 	configstore.SetLogger(logger)
-	hsd.SetLogger(logger)
 
 	logger.Debug("settings", "specification", hclog.Fmt("%+v", *s))
 
 	a := &app{
-		cs: configstore.New(s.Lifetime, s.Interval),
+		cs:     configstore.New(s.Lifetime, s.Interval),
+		router: mux.NewRouter(),
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", hsd.Handler(a.cs))
-	mux.HandleFunc("/version", handleVersion())
-	a.httpServer = hsd.NewHTTPService(s.HTTPHost, mux)
+	a.routes(s.WithREST)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -53,6 +51,7 @@ func run(s *Specification) error {
 
 	go a.cs.Run(ctx)
 
+	// Create and run the GRPC Server
 	lis, err := net.Listen("tcp", s.GPRCHost)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %v", err)
@@ -69,10 +68,12 @@ func run(s *Specification) error {
 		}
 	}()
 
-	go a.httpServer.ShutdownOnContext(ctx)
-
+	// Create and run the HTTP server
+	hSrv := &http.Server{Addr: s.HTTPHost, Handler: a.router}
+	go ShutdownOnContext(ctx, hSrv)
+	// go a.httpServer.ShutdownOnContext(ctx)
 	logger.Info("running http server")
-	if err := a.httpServer.ListenAndServe(); err != nil {
+	if err := hSrv.ListenAndServe(); err != nil {
 		logger.Error("http shutdown error", "error", err)
 	}
 
@@ -86,6 +87,7 @@ type Specification struct {
 	HTTPHost     string        `default:":8080"`
 	Lifetime     time.Duration `default:"2m"`
 	Interval     time.Duration `default:"30s"`
+	WithREST     bool          `default:"true"`
 }
 
 func main() {
